@@ -1,0 +1,36 @@
+# Виртуальные окружения
+.venv/
+.venv1/
+venv/
+env/
+
+# Python кэш
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Секретные файлы (Google API ключи)
+credentials.json
+service.json
+
+# Базы данных (локальные)
+*.db
+*.sqlite3
+
+# Кэш
+sheets_cache.json
+
+# Логи
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
