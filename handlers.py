@@ -13,6 +13,7 @@ from keyboards import main_menu, games_menu, review_menu
 from database import get_all_games, add_participant_db, get_game_by_id
 from notifications import notify_admins
 from sync_service import instant_add_user_to_sheet
+from sheets_api_guest_refactored import записать_участника_гостевые, перекрасить_гостевую_игротеку
 
 router = Router()
 
@@ -117,7 +118,9 @@ async def _send_game_card(message: Message, игра: dict):
         ])
         text_val += "\n\n⚠️ <i>Регистрация на эту игру проходит на внешнем сайте.</i>"
     else:
-        stop_words = ["форма", "лс", "личка", "сайт", "директ"]
+        # Основа слова, а не полная форма: в листе пишут «по форме», «через форму»,
+        # и проверка на «форма» их не ловила
+        stop_words = ["форм", "лс", "личк", "сайт", "директ"]
         if any(w in display_time.lower() for w in stop_words):
             kb_rows.append([
                 InlineKeyboardButton(text="ℹ️ Как записаться?", callback_data=f"info_alert_{game_id}")
@@ -260,6 +263,22 @@ async def join_game_db(callback: CallbackQuery, bot: Bot):
                             user_name
                         )
                     )
+                else:
+                    # Гостевая игра может иметь колонку в гостевом листе: пишем и туда,
+                    # иначе в листе место остаётся свободным, а в БД — занятым
+                    try:
+                        время_листа = (game_info['время'] or '').split()[0]
+                        записан = await asyncio.to_thread(
+                            записать_участника_гостевые,
+                            game_info['дата'], game_info['игра'], время_листа, user_name
+                        )
+                        if записан:
+                            await asyncio.to_thread(
+                                перекрасить_гостевую_игротеку,
+                                game_info['дата'], game_info['игра'], время_листа
+                            )
+                    except Exception as e:
+                        print(f"[ГОСТЬ -> лист] Ошибка: {e}")
 
                 # Уведомление
                 head = "📥 <b>НОВАЯ ЗАПИСЬ (АНТИКАФЕ)</b>" if game_info[
