@@ -159,8 +159,11 @@ async def cmd_start(message: Message, command: CommandObject):
             await message.answer("⚠️ Некорректная ссылка.")
 
     # 2. Обычный старт
+    # У части аккаунтов first_name пустой — раньше получалось «Привет, !»
+    имя = (message.from_user.first_name or message.from_user.username
+           or message.from_user.full_name or "друг")
     text_val = (
-        f"Привет, <b>{message.from_user.first_name}</b>! 👋 Это бот Антикафе Соколиная Нора!\n\n"
+        f"Привет, <b>{escape(str(имя))}</b>! 👋 Это бот Антикафе Соколиная Нора!\n\n"
         "Я помогу тебе забронировать место, записаться на игротеки и узнать тарифы."
     )
     try:
