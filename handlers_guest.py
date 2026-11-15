@@ -12,8 +12,10 @@ from sheets_api_guest_refactored import (
     удалить_участника_гостевые,
     получить_гостевые_игротеки_данные,
     перекрасить_гостевую_игротеку,
+    есть_места_в_гостевой,
+    записать_участника_гостевые,
 )
-from database import get_game_by_id, add_participant_db
+from database import add_participant_db, add_game_db, get_all_games
 
 guest_router = Router()
 MAX_CALLBACK_LENGTH = 64
@@ -101,7 +103,7 @@ def validate_callback(callback_data: str) -> str:
     return callback_data
 
 # 📌 Показать все гостевые игротеки
-@guest_router.callback_query(F.data.contains("гостевую игротеку"))
+@guest_router.callback_query(F.data.contains("гостев"))
 async def handle_guest(callback: CallbackQuery):
     user_id = callback.from_user.id
 
@@ -113,7 +115,7 @@ async def handle_guest(callback: CallbackQuery):
     guest_click_locks[user_id] = True
 
     try:
-        игротеки = получить_гостевые_игротеки_данные()
+        игротеки = await asyncio.to_thread(получить_гостевые_игротеки_данные)
 
         if not игротеки:
             await callback.message.answer(
@@ -171,36 +173,62 @@ async def join_guest_game(callback: CallbackQuery):
         # ⚡️ МГНОВЕННЫЙ ОТВЕТ
         await callback.answer("⏳ Проверяю места...", show_alert=False)
 
-        game_id = int(callback.data.split("_")[2])
-        игра = get_game_by_id(game_id)
+        # В callback лежит индекс колонки гостевого листа, а не id из БД
+        col_index = int(callback.data.split("_")[2])
+        игра = await asyncio.to_thread(получить_гостевую_игру, col_index)
         if not игра:
             await callback.message.answer("Игра не найдена.")
             return
     except Exception:
         return
 
+    дата = игра['дата']
+    время = игра['дата_время'].split()[1]
     имя = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
 
-    # Пишем в БД (вместе с user_id, чтобы отмена была строго по человеку)
-    успешно = await asyncio.to_thread(add_participant_db, game_id, имя, callback.from_user.id)
+    # 1. Свободные места проверяем по самому листу
+    есть_место = await asyncio.to_thread(есть_места_в_гостевой, дата, игра['игра'], время)
+    if not есть_место:
+        await callback.answer("❌ Свободных мест на эту игру нет.", show_alert=True)
+        return
 
-    if успешно:
-        # Уведомляем админа
-        await notify_admins(
-            callback.bot,
-            (
-                "📥 <b>НОВАЯ ЗАПИСЬ (ГОСТЬ)</b>\n"
-                "━━━━━━━━━━━━━━━━\n"
-                f"👤 <b>Гость:</b> {имя}\n"
-                f"♟ <b>Игра:</b> {игра['игра']}\n"
-                f"🗓 <b>Дата:</b> {игра['дата']} {игра['время']}"
+    # 2. Пишем в гостевой лист (это источник правды для записи)
+    записан = await asyncio.to_thread(записать_участника_гостевые, дата, игра['игра'], время, имя)
+    if not записан:
+        await callback.answer("⚠️ Не удалось записаться, попробуйте позже.", show_alert=True)
+        return
+
+    # 3. Перекрашиваем название игры (синий = мест нет)
+    await asyncio.to_thread(перекрасить_гостевую_игротеку, дата, игра['игра'], время)
+
+    # 4. Дублируем в БД, чтобы запись была видна в «Мои записи» и отменялась по user_id
+    try:
+        games = await asyncio.to_thread(get_all_games)
+        db_game = next((g for g in games if g['игра'] == игра['игра'] and g['дата'] == дата), None)
+        if db_game:
+            game_id = db_game['id']
+        else:
+            game_id = await asyncio.to_thread(
+                add_game_db, 'guest', игра['игра'], дата, время,
+                игра.get('хост', ''), '', игра.get('лимит', 0) or 0
             )
-        )
+        await asyncio.to_thread(add_participant_db, game_id, имя, callback.from_user.id)
+    except Exception as e:
+        print(f"[ГОСТЬ -> БД] Ошибка: {e}")
 
-        # Переходим в "Мои брони"
-        await _render_bookings_for_user(callback, service, CALENDAR_IDS, is_edit=True)
-    else:
-        await callback.message.answer("⚠️ Мест нет или вы уже записаны.")
+    # 5. Уведомляем админа и показываем «Мои записи»
+    await notify_admins(
+        callback.bot,
+        (
+            "📥 <b>НОВАЯ ЗАПИСЬ (ГОСТЬ)</b>" + chr(10) +
+            "━━━━━━━━━━━━━━━━" + chr(10) +
+            f"👤 <b>Гость:</b> {escape(str(имя))}" + chr(10) +
+            f"♟ <b>Игра:</b> {escape(str(игра['игра']))}" + chr(10) +
+            f"🗓 <b>Дата:</b> {дата} {время}"
+        )
+    )
+
+    await _render_bookings_for_user(callback, service, CALENDAR_IDS, is_edit=True)
 
 
 # ⏱ Асинхронная задача автосброса

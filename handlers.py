@@ -204,6 +204,14 @@ async def show_all_games_combined(message: Message):
         for игра in games:
             await _send_game_card(message, игра)
 
+        # Гостевые игротеки живут в отдельном листе и раньше были недостижимы из меню
+        await message.answer(
+            "🎭 Хочешь записаться на гостевую игротеку?",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Гостевые игротеки", callback_data="гостевые_игротеки")
+            ]])
+        )
+
     except Exception as e:
         await message.answer(f"⚠️ Ошибка: {e}")
     finally:

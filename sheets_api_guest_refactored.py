@@ -166,7 +166,10 @@ def есть_места_в_гостевой(дата, игра, время):
 
     if len(data) < 6: return False
 
-    for col in range(1, len(data[1])):
+    # Ширину берём по самой длинной из строк дат/игр/инфо: строка дат может быть
+    # короче, и тогда последние колонки молча пропускались
+    width = max(len(data[1]), len(data[2]) if len(data) > 2 else 0, len(data[3]) if len(data) > 3 else 0)
+    for col in range(1, width):
         if col >= len(data[2]) or col >= len(data[3]): continue
 
         if (
@@ -194,7 +197,10 @@ def записать_участника_гостевые(дата: str, игра
         return False
 
     col_index = None
-    for col in range(1, len(data[1])):
+    # Ширину берём по самой длинной из строк дат/игр/инфо: строка дат может быть
+    # короче, и тогда последние колонки молча пропускались
+    width = max(len(data[1]), len(data[2]) if len(data) > 2 else 0, len(data[3]) if len(data) > 3 else 0)
+    for col in range(1, width):
         if col >= len(data[2]) or col >= len(data[3]): continue
 
         дата_столбца = data[1][col].strip()
@@ -230,7 +236,10 @@ def удалить_участника_гостевые(дата: str, игра: 
     except Exception:
         return False
 
-    for col in range(1, len(data[1])):
+    # Ширину берём по самой длинной из строк дат/игр/инфо: строка дат может быть
+    # короче, и тогда последние колонки молча пропускались
+    width = max(len(data[1]), len(data[2]) if len(data) > 2 else 0, len(data[3]) if len(data) > 3 else 0)
+    for col in range(1, width):
         if col >= len(data[2]) or col >= len(data[3]): continue
 
         дата_столбца = data[1][col].strip()

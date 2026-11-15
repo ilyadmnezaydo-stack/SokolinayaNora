@@ -1,6 +1,7 @@
 # ФАЙЛ: my_bookings.py
 
 import asyncio
+from html import escape
 from datetime import datetime, timezone
 
 from aiogram import Router, F, types
@@ -9,6 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQu
 # Импорты API
 from calendar_api import service, CALENDAR_IDS, удалить_бронь
 from database import get_all_games, remove_participant_db, get_game_by_id
+from sheets_api_guest_refactored import удалить_участника_гостевые, перекрасить_гостевую_игротеку
 from notifications import notify_admins
 
 # === ИМПОРТ ФУНКЦИИ МГНОВЕННОГО УДАЛЕНИЯ ===
@@ -182,7 +184,7 @@ async def cancel_calendar_booking(callback: CallbackQuery):
             admin_text = (
                 f"❌ <b>ОТМЕНА БРОНИ ({cal_key.upper()})</b>\n"
                 "━━━━━━━━━━━━━━━━\n"
-                f"👤 <b>Гость:</b> {user_name}\n"
+                f"👤 <b>Гость:</b> {escape(str(user_name))}\n"
                 f"🆔 <b>User ID:</b> {callback.from_user.id}\n"
                 f"ℹ️ Удалено через бота."
             )
@@ -253,6 +255,17 @@ async def cancel_my_game_booking(callback: CallbackQuery):
                         target_name
                     )
                 )
+            elif game['type'] == 'guest':
+                # Гостевые игры лежат в ОТДЕЛЬНОМ листе: раньше отмена чистила только БД,
+                # и место в листе оставалось занятым
+                try:
+                    время_гост = (game.get('время') or '').split()[0] if game.get('время') else ''
+                    await asyncio.to_thread(
+                        удалить_участника_гостевые, game['дата'], game['игра'], время_гост, target_name)
+                    await asyncio.to_thread(
+                        перекрасить_гостевую_игротеку, game['дата'], game['игра'], время_гост)
+                except Exception as e:
+                    print(f"[ГОСТЬ Отмена -> лист] Ошибка: {e}")
 
             # 3. Уведомляем админов
             try:
@@ -260,7 +273,7 @@ async def cancel_my_game_booking(callback: CallbackQuery):
                 admin_text = (
                     f"❌ <b>ОТМЕНА ЗАПИСИ {type_label}</b>\n"
                     "━━━━━━━━━━━━━━━━\n"
-                    f"👤 <b>Гость:</b> {target_name}\n"
+                    f"👤 <b>Гость:</b> {escape(str(target_name))}\n"
                     f"🎲 <b>Игра:</b> {game['игра']}\n"
                     f"🗓 <b>Дата:</b> {game['дата']} {game['время']}"
                 )
