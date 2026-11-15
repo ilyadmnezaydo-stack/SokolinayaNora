@@ -1,20 +1,19 @@
 import asyncio
+from html import escape
 from datetime import datetime, date
 
 from aiogram import Router, F, Bot
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from calendar_api import service, CALENDAR_IDS
-from handlers import format_date_ui_with_weekday
 from my_bookings import _render_bookings_for_user
 from admin_panel import notify_admins
 from keyboards import main_menu
 from sheets_api_guest_refactored import (
-    есть_места_в_гостевой,
-    записать_участника_гостевые,
     удалить_участника_гостевые,
-    получить_гостевые_игротеки_данные
+    получить_гостевые_игротеки_данные,
+    перекрасить_гостевую_игротеку,
 )
-from database import get_game_by_id, add_participant_db, remove_participant_db
+from database import get_game_by_id, add_participant_db
 
 guest_router = Router()
 MAX_CALLBACK_LENGTH = 64
@@ -125,7 +124,7 @@ async def handle_guest(callback: CallbackQuery):
 
         for игра in игротеки:
             участники = игра.get('участники', [])
-            участники_str = "\n".join([f"• {u}" for u in участники]) if участники else "Пока никто не записан"
+            участники_str = "\n".join([f"• {escape(str(u))}" for u in участники]) if участники else "Пока никто не записан"
 
             дата_время_с_днем = формат_дата_время_с_днем(игра)
 
@@ -182,8 +181,8 @@ async def join_guest_game(callback: CallbackQuery):
 
     имя = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
 
-    # Пишем в БД
-    успешно = add_participant_db(game_id, имя)
+    # Пишем в БД (вместе с user_id, чтобы отмена была строго по человеку)
+    успешно = await asyncio.to_thread(add_participant_db, game_id, имя, callback.from_user.id)
 
     if успешно:
         # Уведомляем админа
@@ -245,7 +244,7 @@ async def remove_guest_booking(callback: CallbackQuery):
     успешно = удалить_участника_гостевые(дата, игра['игра'], время, имя)
     if успешно:
         # 🔵 перекраска гостевого листа
-        перекрасить_игротеку_по_содержимому(дата, игра['игра'], sheet_override=sheet_guest_igroteka)
+        await asyncio.to_thread(перекрасить_гостевую_игротеку, дата, игра['игра'], время)
 
         дата_время_с_днем = формат_дата_время_с_днем(игра, дата_str=дата, время_str=время)
         await callback.message.edit_text(
@@ -278,7 +277,7 @@ async def отменить_все_мои_гостевые_брони(callback: C
         if удалить_участника_гостевые(дата, игра['игра'], время, имя):
             удалено += 1
             # 🔵 перекраска гостевого листа
-            перекрасить_игротеку_по_содержимому(дата, игра['игра'], sheet_override=sheet_guest_igroteka)
+            await asyncio.to_thread(перекрасить_гостевую_игротеку, дата, игра['игра'], время)
             await notify_admins(
                 bot,
                 (

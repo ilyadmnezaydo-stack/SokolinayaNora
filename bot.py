@@ -7,6 +7,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 # Импорты роутеров
+from database import init_db
 from admin_panel import admin_router
 from create_igroteka import router as igroteka_create_router
 from fsm_booking_combined import router as booking_router
@@ -47,6 +48,7 @@ async def scheduled_sync():
             await asyncio.sleep(600)
 
 async def main():
+    init_db()  # создаём/досоздаём таблицы, если файла БД ещё нет
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=MemoryStorage())
 

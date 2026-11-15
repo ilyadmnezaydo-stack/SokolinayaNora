@@ -13,7 +13,7 @@ from calendar_api import (
     получить_пересекающиеся_брони,
     CALENDAR_IDS
 )
-from keyboards import booking_menu, build_confirm_keyboard, main_menu
+from keyboards import booking_menu, build_confirm_keyboard
 import keyboards
 from admin_panel import load_blocked_tables, notify_admins
 
@@ -281,7 +281,7 @@ async def enter_people(message: Message, state: FSMContext, bot: Bot):
             # Если занято, ищем свободные окна
             свободные = найти_свободное_время(тип, start=start_dt, end=end_dt)
 
-            msg = f"❗ В это время помещение занято.\n"
+            msg = "❗ В это время помещение занято.\n"
             if свободные:
                 msg += "Вот ближайшие свободные окна:"
                 buttons = []

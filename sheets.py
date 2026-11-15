@@ -73,7 +73,7 @@ def _get_column_index(data, date_str, game_name):
         row_dates = data[1]  # Индекс 1 (вторая строка)
         row_games = data[2]  # Индекс 2 (третья строка)
 
-        for idx, (d_val, g_val) in enumerate(zip(row_dates, row_games)):
+        for idx, (d_val, g_val) in enumerate(zip(row_dates, row_games, strict=False)):
             if d_val.strip().replace(".", "") == target_date:
                 if g_val.strip().lower() == target_game:
                     return idx
@@ -234,7 +234,7 @@ def получить_актуальные_игротеки_sync():
             # Для упрощения считаем текущий год
             try:
                 date_str = f"{dt_full}.{now.year}"
-                dt_obj = datetime.strptime(date_str, "%d.%m.%Y")
+                _dt_obj = datetime.strptime(date_str, "%d.%m.%Y")
                 # Логика пропуска прошедших дат (если дата была вчера - скрываем)
                 # if dt_obj.date() < now.date(): continue
             except:
@@ -263,7 +263,7 @@ def получить_актуальные_игротеки_sync():
                 "участники": участники,
                 "col_index": col
             })
-        except Exception as e:
+        except Exception:
             continue
 
     return result

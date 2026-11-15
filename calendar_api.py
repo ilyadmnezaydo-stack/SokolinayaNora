@@ -166,7 +166,7 @@ def найти_свободное_время(тип: str, start: datetime, end: 
 if __name__ == "__main__":
     try:
         print(f"Используемый сервис-аккаунт: {credentials.service_account_email}")
-        print(f"Список календарей:")
+        print("Список календарей:")
         for ключ, календарь in CALENDAR_IDS.items():
             print(f"{ключ}: {календарь}")
     except Exception as e:

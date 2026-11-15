@@ -26,6 +26,12 @@ def init_db():
             cursor.execute("ALTER TABLE games ADD COLUMN game_type TEXT DEFAULT 'guest'")
         except sqlite3.OperationalError:
             pass
+        try:
+            # id участников в том же порядке, что и имена — чтобы люди
+            # с одинаковыми именами не могли отменять чужие записи
+            cursor.execute("ALTER TABLE games ADD COLUMN participant_ids TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
 
 
@@ -116,6 +122,12 @@ def get_all_games():
         parts_str = row['participants']
         parts = parts_str.split(",") if parts_str else []
         parts = [p.strip() for p in parts if p.strip()]
+        try:
+            ids_raw = row['participant_ids']
+        except (IndexError, KeyError):
+            ids_raw = ""
+        ids = [i.strip() for i in (ids_raw or "").split(",")]
+        ids = (ids + [""] * len(parts))[:len(parts)]
 
         games.append({
             "id": row['id'],
@@ -128,7 +140,8 @@ def get_all_games():
             "хост": row['host_name'],
             "контакт": row['host_contact'],
             "лимит": row['limit_count'],
-            "участники": parts
+            "участники": parts,
+            "участники_ids": ids
         })
 
     # === ФИЗИЧЕСКОЕ УДАЛЕНИЕ СТАРЫХ ИГР ===
@@ -165,6 +178,12 @@ def get_game_by_id(game_id):
     parts_str = row['participants']
     parts = parts_str.split(",") if parts_str else []
     parts = [p.strip() for p in parts if p.strip()]
+    try:
+        ids_raw = row['participant_ids']
+    except (IndexError, KeyError):
+        ids_raw = ""
+    ids = [i.strip() for i in (ids_raw or "").split(",")]
+    ids = (ids + [""] * len(parts))[:len(parts)]
 
     return {
         "id": row['id'],
@@ -177,61 +196,99 @@ def get_game_by_id(game_id):
         "хост": row['host_name'],
         "контакт": row['host_contact'],
         "лимит": row['limit_count'],
-        "участники": parts
+        "участники": parts,
+        "участники_ids": ids
     }
 
 
-def add_participant_db(game_id, user_name):
+def add_participant_db(game_id, user_name, user_id=None):
+    """Добавляет участника. user_id пишется в параллельный список participant_ids,
+    чтобы потом можно было отменить запись строго по человеку, а не по имени."""
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT participants, limit_count FROM games WHERE id = ?", (game_id,))
+        cursor.execute(
+            "SELECT participants, limit_count, COALESCE(participant_ids, '') FROM games WHERE id = ?",
+            (game_id,))
         row = cursor.fetchone()
         if not row: return "ERROR"
 
-        current_parts_str, limit = row
-        parts = current_parts_str.split(",") if current_parts_str else []
-        parts = [p.strip() for p in parts if p.strip()]
+        current_parts_str, limit, current_ids_str = row
+        parts = [p.strip() for p in (current_parts_str or "").split(",") if p.strip()]
+        ids = [i.strip() for i in (current_ids_str or "").split(",")]
+        ids = (ids + [""] * len(parts))[:len(parts)]
 
-        # Проверка дублей (без учета регистра)
-        user_clean = user_name.lower().replace("@", "")
-        for p in parts:
-            if user_clean in p.lower().replace("@", ""):
+        user_clean = str(user_name or "").lower().replace("@", "")
+
+        # Дубли: по user_id строго; по имени — только для старых записей без id,
+        # иначе два разных человека с одинаковым именем не смогут записаться
+        if user_id:
+            if str(user_id) in ids:
                 return "ALREADY"
+            for p, pid in zip(parts, ids, strict=False):
+                if not pid and user_clean and user_clean in p.lower().replace("@", ""):
+                    return "ALREADY"
+        else:
+            for p in parts:
+                if user_clean and user_clean in p.lower().replace("@", ""):
+                    return "ALREADY"
 
-        if len(parts) >= limit: return "FULL"
+        if limit and len(parts) >= int(limit):
+            return "FULL"
 
         parts.append(user_name)
-        new_parts_str = ",".join(parts)
-        cursor.execute("UPDATE games SET participants = ? WHERE id = ?", (new_parts_str, game_id))
+        ids.append(str(user_id) if user_id else "")
+        cursor.execute(
+            "UPDATE games SET participants = ?, participant_ids = ? WHERE id = ?",
+            (",".join(parts), ",".join(ids), game_id))
         conn.commit()
         return "OK"
 
 
-def remove_participant_db(game_id, user_name):
+def remove_participant_db(game_id, user_name, user_id=None):
+    """Удаляет участника по user_id (если известен), иначе по имени.
+    Имена и id удаляются по одному и тому же индексу, чтобы списки не разъехались."""
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT participants FROM games WHERE id = ?", (game_id,))
+        cursor.execute(
+            "SELECT participants, COALESCE(participant_ids, '') FROM games WHERE id = ?",
+            (game_id,))
         row = cursor.fetchone()
         if not row: return False
 
-        current_parts_str = row[0]
-        parts = current_parts_str.split(",") if current_parts_str else []
-        parts = [p.strip() for p in parts if p.strip()]
+        parts = [p.strip() for p in (row[0] or "").split(",") if p.strip()]
+        ids = [i.strip() for i in (row[1] or "").split(",")]
+        ids = (ids + [""] * len(parts))[:len(parts)]
 
-        # Удаление
-        target_clean = user_name.lower().replace("@", "")
-        new_parts = []
-        found = False
-        for p in parts:
-            if target_clean in p.lower().replace("@", "") or p.lower().replace("@", "") in target_clean:
-                found = True
-            else:
-                new_parts.append(p)
+        target_clean = str(user_name or "").lower().replace("@", "").strip()
+        idx = None
 
-        if not found: return False
+        if user_id:
+            for i, pid in enumerate(ids):
+                if pid and pid == str(user_id):
+                    idx = i
+                    break
 
-        new_parts_str = ",".join(new_parts)
-        cursor.execute("UPDATE games SET participants = ? WHERE id = ?", (new_parts_str, game_id))
+        if idx is None and target_clean:
+            for i, p in enumerate(parts):
+                if p.lower().replace("@", "").strip() == target_clean:
+                    idx = i
+                    break
+
+        if idx is None and target_clean:
+            for i, p in enumerate(parts):
+                norm = p.lower().replace("@", "").strip()
+                if norm and (target_clean in norm or norm in target_clean):
+                    idx = i
+                    break
+
+        if idx is None:
+            return False
+
+        del parts[idx]
+        del ids[idx]
+        cursor.execute(
+            "UPDATE games SET participants = ?, participant_ids = ? WHERE id = ?",
+            (",".join(parts), ",".join(ids), game_id))
         conn.commit()
         return True
 

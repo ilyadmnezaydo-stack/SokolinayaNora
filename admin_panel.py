@@ -3,8 +3,8 @@ import html
 import asyncio
 from datetime import datetime, timezone, timedelta
 
-from aiogram import Router, F, types, Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from aiogram import Router, F, types
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -25,7 +25,7 @@ from sync_service import sync_anticafe_games, instant_remove_user_from_sheet
 from sheets_api_guest_refactored import удалить_участника_гостевые
 
 # Импорт Уведомлений
-from notifications import notify_admins, ADMIN_IDS
+from notifications import ADMIN_IDS
 
 admin_router = Router()
 BLOCKED_TABLES_FILE = "blocked_tables.json"
@@ -362,7 +362,7 @@ async def admin_finish_add_user(message: types.Message, state: FSMContext):
     elif res == "ALREADY":
         await message.answer(f"⚠️ <b>{user_name}</b> уже записан.", parse_mode="HTML")
     elif res == "FULL":
-        await message.answer(f"❌ Нет мест.", parse_mode="HTML")
+        await message.answer("❌ Нет мест.", parse_mode="HTML")
     else:
         await message.answer("⚠️ Ошибка базы данных.", parse_mode="HTML")
 

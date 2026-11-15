@@ -1,6 +1,7 @@
 # ФАЙЛ: handlers.py
 
 import asyncio
+from html import escape
 from datetime import datetime, date
 from aiogram import Router, F, Bot
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, CallbackQuery
@@ -10,8 +11,6 @@ from aiogram.fsm.context import FSMContext
 # --- ИМПОРТЫ ---
 from keyboards import main_menu, games_menu, review_menu
 from database import get_all_games, add_participant_db, get_game_by_id
-from my_bookings import _render_bookings_for_user
-from calendar_api import service, CALENDAR_IDS
 from notifications import notify_admins
 from sync_service import instant_add_user_to_sheet
 
@@ -90,7 +89,7 @@ async def _send_game_card(message: Message, игра: dict):
         )
     else:
         # ВАРИАНТ 2: Обычная игра (Показываем всё)
-        участники_str = "\n".join([f"• {u}" for u in игра['участники']]) if игра['участники'] else "Пока пусто"
+        участники_str = "\n".join([f"• {escape(str(u))}" for u in игра['участники']]) if игра['участники'] else "Пока пусто"
 
         # Если мест нет, добавляем пометку в текст (опционально)
         status_line = f"🪑 Мест: <b>{занято}</b> из {лимит}"

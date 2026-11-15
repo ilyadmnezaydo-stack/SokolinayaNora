@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 from aiogram import Router, F, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Message
-from aiogram.filters import Command
 
 # Импорты API
 from calendar_api import service, CALENDAR_IDS, удалить_бронь
@@ -100,15 +99,24 @@ async def _render_bookings_for_user(event: types.TelegramObject, service_obj, ca
         for game in all_games:
             is_participating = False
 
-            # Проверяем, есть ли пользователь в списке участников
-            for p in game.get('участники', []):
-                p_clean = p.lower().replace("@", "").strip()
-                # Ищем совпадение по любому из вариантов имени (username, full_name, id)
-                for term in search_terms:
-                    if term in p_clean:
-                        is_participating = True
+            # 1) Точное совпадение по user_id — надёжнее любого сравнения имён
+            ids = [str(x) for x in game.get('участники_ids', []) if str(x).strip()]
+            if user_id in ids:
+                is_participating = True
+
+            # 2) Фолбэк для старых записей без id: сравнение по имени целиком,
+            #    а не подстрокой (иначе «Иван» цепляет «Иванов»)
+            if not is_participating:
+                name_terms = [t for t in (username.lower().replace("@", "").strip() if username else "",
+                                          full_name.lower().strip()) if t]
+                for p in game.get('участники', []):
+                    p_clean = p.lower().replace("@", "").strip()
+                    for term in name_terms:
+                        if p_clean == term or p_clean.endswith(" " + term) or p_clean.startswith(term + " "):
+                            is_participating = True
+                            break
+                    if is_participating:
                         break
-                if is_participating: break
 
             if is_participating:
                 has_bookings = True
@@ -201,31 +209,36 @@ async def cancel_my_game_booking(callback: CallbackQuery):
             await _render_bookings_for_user(callback, service, CALENDAR_IDS, is_edit=True)
             return
 
-        # === УЛУЧШЕННЫЙ ПОИСК ИМЕНИ ===
-        # Нам нужно найти точное имя, записанное в БД, чтобы передать его в instant_remove
+        # === ПОИСК ИМЕНИ ЗАПИСИ ===
+        # Сначала строго по user_id: тогда человек с таким же именем
+        # не может отменить чужую запись.
+        my_id = str(callback.from_user.id)
+        ids = [str(x) for x in game.get('участники_ids', [])]
         target_name = None
-        my_username = callback.from_user.username or ""
-        my_fullname = callback.from_user.full_name or ""
 
-        search_terms = []
-        if my_username: search_terms.append(my_username.lower().replace("@", ""))
-        if my_fullname: search_terms.append(my_fullname.lower())
+        if my_id in ids:
+            idx = ids.index(my_id)
+            if idx < len(game['участники']):
+                target_name = game['участники'][idx]
 
-        for p in game['участники']:
-            p_clean = p.lower().replace("@", "").strip()
-            # Проверяем вхождение username в имя участника или наоборот
-            for term in search_terms:
-                if term in p_clean or p_clean in term:
-                    target_name = p  # Берем оригинальное имя из БД
+        if not target_name:
+            # Старые записи без id — сравниваем имена целиком, без подстрок
+            my_username = (callback.from_user.username or "").lower().replace("@", "").strip()
+            my_fullname = (callback.from_user.full_name or "").lower().strip()
+            for p in game['участники']:
+                p_clean = p.lower().replace("@", "").strip()
+                if p_clean in (my_username, my_fullname) \
+                        or (my_fullname and p_clean.endswith(" " + my_fullname)) \
+                        or (my_username and p_clean.startswith(my_username + " ")):
+                    target_name = p
                     break
-            if target_name: break
 
         # Если не нашли (странно, но бывает), берем дефолт
         if not target_name:
-            target_name = f"@{my_username}" if my_username else my_fullname
+            target_name = f"@{callback.from_user.username}" if callback.from_user.username else (callback.from_user.full_name or "")
 
-        # 1. Удаляем из БД
-        success = await asyncio.to_thread(remove_participant_db, game_id, target_name)
+        # 1. Удаляем из БД (по user_id, с фолбэком на имя)
+        success = await asyncio.to_thread(remove_participant_db, game_id, target_name, my_id)
 
         if success:
             await callback.answer("✅ Запись отменена.", show_alert=True)

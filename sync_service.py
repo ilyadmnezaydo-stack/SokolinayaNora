@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from datetime import datetime, date
+from datetime import datetime
 from sheets_api_guest_refactored import get_client
 from database import clear_official_games, add_game_db, get_all_games
 from gspread.utils import rowcol_to_a1
@@ -125,7 +125,7 @@ async def instant_add_user_to_sheet(game_name, game_date, user_name):
             await _update_cell_with_format(sheet, row_to_write, col_idx, user_name, COLOR_BUSY)
             print(f"✅ [INSTANT ADD] Успех: {col_letter}{row_to_write}")
         else:
-            print(f"⚠️ [INSTANT ADD] Нет мест.")
+            print("⚠️ [INSTANT ADD] Нет мест.")
     except Exception as e:
         print(f"❌ [INSTANT ADD] Ошибка: {e}")
 
@@ -306,7 +306,7 @@ async def export_to_sheets():
         try:
             body = {"requests": requests}
             await asyncio.to_thread(sheet.spreadsheet.batch_update, body)
-            print(f"✅ [BG EXPORT] Синхронизация завершена.")
+            print("✅ [BG EXPORT] Синхронизация завершена.")
         except Exception as e:
             print(f"❌ [BG EXPORT] Ошибка: {e}")
 
