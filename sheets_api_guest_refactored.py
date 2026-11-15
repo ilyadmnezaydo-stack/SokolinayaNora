@@ -155,6 +155,65 @@ def получить_гостевые_игротеки_данные():
     return result
 
 
+def добавить_гостевую_игротеку(дата: str, игра: str, время: str, хост: str, лимит: int) -> bool:
+    """Дописывает новую колонку в гостевой лист: дата, игра, инфо, хост.
+    Нужна, чтобы созданная в боте игротека сразу попадала в гостевой лист,
+    а не жила только в БД."""
+    sheet = get_sheet_guest_igroteka()
+    if not sheet: return False
+
+    try:
+        data = sheet.get_all_values()
+    except Exception:
+        return False
+
+    if len(data) < 5:
+        return False
+
+    # Уже есть такая колонка — второй раз не добавляем
+    for col in range(1, len(data[2])):
+        if col >= len(data[1]): continue
+        if (data[1][col].strip() == дата
+                and data[2][col].strip().lower() == игра.lower()):
+            return True
+
+    last = 0
+    for col in range(1, len(data[2])):
+        if data[2][col].strip():
+            last = col
+
+    new_col = last + 1
+    if new_col >= 26:
+        print("[ГОСТЕВАЯ Добавление] Колонки кончились")
+        return False
+
+    letter = chr(ord('A') + new_col)
+    инфо = f"{время} {int(лимит)} чел"
+
+    try:
+        sheet.batch_update([
+            {"range": f"{letter}2", "values": [[дата]]},
+            {"range": f"{letter}3", "values": [[игра]]},
+            {"range": f"{letter}4", "values": [[инфо]]},
+            {"range": f"{letter}5", "values": [[хост]]},
+        ])
+    except Exception as e:
+        print(f"[ГОСТЕВАЯ Добавление] Ошибка записи: {e}")
+        return False
+
+    try:
+        перекрасить_гостевую_игротеку(дата, игра, время)
+    except Exception as e:
+        print(f"[ГОСТЕВАЯ Добавление] Ошибка перекраски: {e}")
+
+    return True
+
+
+def _это_свободно(значение: str) -> bool:
+    """Свободное место в листе бывает и пустой ячейкой, и словом «свободно»."""
+    return значение.strip().lower() in ("", "свободно")
+
+
 def есть_места_в_гостевой(дата, игра, время):
     sheet = get_sheet_guest_igroteka()
     if not sheet: return False
@@ -166,8 +225,6 @@ def есть_места_в_гостевой(дата, игра, время):
 
     if len(data) < 6: return False
 
-    # Ширину берём по самой длинной из строк дат/игр/инфо: строка дат может быть
-    # короче, и тогда последние колонки молча пропускались
     width = max(len(data[1]), len(data[2]) if len(data) > 2 else 0, len(data[3]) if len(data) > 3 else 0)
     for col in range(1, width):
         if col >= len(data[2]) or col >= len(data[3]): continue
@@ -177,16 +234,15 @@ def есть_места_в_гостевой(дата, игра, время):
                 and data[2][col].strip().lower() == игра.lower()
                 and время in data[3][col]
         ):
-            свободно = 0
-            for row in data[5:13]:
-                if col < len(row):
-                    val = row[col].strip()
-                    if val.lower() == "свободно":
-                        свободно += 1
-            return свободно > 0
+            # Считаем занятые ячейки, а не слово «свободно»: в боевых колонках
+            # свободные места — пустые ячейки, из-за чего места «не находились»
+            лимит = extract_limit_from_info(data[3][col])
+            занято = sum(
+                1 for row in data[5:]
+                if col < len(row) and not _это_свободно(row[col])
+            )
+            return лимит > занято
     return False
-
-
 def записать_участника_гостевые(дата: str, игра: str, время: str, имя: str):
     sheet = get_sheet_guest_igroteka()
     if not sheet: return False
@@ -196,10 +252,8 @@ def записать_участника_гостевые(дата: str, игра
     except Exception:
         return False
 
-    col_index = None
-    # Ширину берём по самой длинной из строк дат/игр/инфо: строка дат может быть
-    # короче, и тогда последние колонки молча пропускались
     width = max(len(data[1]), len(data[2]) if len(data) > 2 else 0, len(data[3]) if len(data) > 3 else 0)
+    col_index = None
     for col in range(1, width):
         if col >= len(data[2]) or col >= len(data[3]): continue
 
@@ -215,8 +269,17 @@ def записать_участника_гостевые(дата: str, игра
     if not col_index:
         return False
 
+    idx = col_index - 1
+    if idx >= len(data[3]):
+        return False
+
+    лимит = extract_limit_from_info(data[3][idx])
+    занято = sum(1 for row in data[5:] if idx < len(row) and not _это_свободно(row[idx]))
+    if занято >= лимит:
+        return False
+
     for i in range(5, len(data)):
-        if col_index - 1 < len(data[i]) and data[i][col_index - 1].strip().lower() == "свободно":
+        if idx < len(data[i]) and _это_свободно(data[i][idx]):
             try:
                 sheet.update_cell(i + 1, col_index, имя)
                 return True
@@ -225,8 +288,6 @@ def записать_участника_гостевые(дата: str, игра
                 return False
 
     return False
-
-
 def удалить_участника_гостевые(дата: str, игра: str, время: str, имя: str):
     sheet = get_sheet_guest_igroteka()
     if not sheet: return False
@@ -247,7 +308,7 @@ def удалить_участника_гостевые(дата: str, игра: 
         инфо_столбца = data[3][col].strip()
 
         if дата_столбца == дата and игра_столбца == игра.lower() and время in инфо_столбца:
-            for i in range(5, 13):
+            for i in range(5, len(data)):
                 if i < len(data) and col < len(data[i]):
                     val = data[i][col].strip().lower()
                     if имя.lower().replace("@", "") in val.replace("@", ""):

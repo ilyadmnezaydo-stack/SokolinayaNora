@@ -243,8 +243,8 @@ async def join_game_db(callback: CallbackQuery, bot: Bot):
         game_id = int(callback.data.split("_")[2])
         user_name = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.full_name
 
-        # 1. Запись в БД
-        status = await asyncio.to_thread(add_participant_db, game_id, user_name)
+        # 1. Запись в БД (user_id обязателен: иначе отмена ищет запись только по нику)
+        status = await asyncio.to_thread(add_participant_db, game_id, user_name, callback.from_user.id)
 
         if status == 'OK':
             await callback.answer("✅ Записано!", show_alert=False)

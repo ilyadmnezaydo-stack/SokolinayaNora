@@ -1,5 +1,6 @@
 # ФАЙЛ: create_igroteka.py
 
+import asyncio
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.state import StatesGroup, State
@@ -9,6 +10,7 @@ import re
 # Используем функцию добавления в БД
 from database import add_game_db
 from notifications import notify_admins
+from sheets_api_guest_refactored import добавить_гостевую_игротеку
 
 router = Router()
 
@@ -118,6 +120,15 @@ async def submit_igroteka(callback: CallbackQuery, state: FSMContext, bot: Bot):
         contact=data['contact'],
         limit=int(data['people'])
     )
+
+    # Пишем колонку в гостевой лист: без этого созданная игра видна только в БД
+    try:
+        await asyncio.to_thread(
+            добавить_гостевую_игротеку,
+            date_part, data['game'], time_part, host_name, int(data['people'])
+        )
+    except Exception as e:
+        print(f"[Создание игротеки -> лист] Ошибка: {e}")
 
     # Уведомление админам (ЧИСТОЕ, БЕЗ ССЫЛКИ НА БОТА)
     admin_text = (
