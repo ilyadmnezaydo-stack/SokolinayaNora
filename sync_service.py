@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from datetime import datetime
+from datetime import datetime, date
 from sheets_api_guest_refactored import get_client
 from database import clear_official_games, add_game_db, get_all_games
 from gspread.utils import rowcol_to_a1
@@ -125,7 +125,7 @@ async def instant_add_user_to_sheet(game_name, game_date, user_name):
             await _update_cell_with_format(sheet, row_to_write, col_idx, user_name, COLOR_BUSY)
             print(f"✅ [INSTANT ADD] Успех: {col_letter}{row_to_write}")
         else:
-            print("⚠️ [INSTANT ADD] Нет мест.")
+            print(f"⚠️ [INSTANT ADD] Нет мест.")
     except Exception as e:
         print(f"❌ [INSTANT ADD] Ошибка: {e}")
 
@@ -306,33 +306,43 @@ async def export_to_sheets():
         try:
             body = {"requests": requests}
             await asyncio.to_thread(sheet.spreadsheet.batch_update, body)
-            print("✅ [BG EXPORT] Синхронизация завершена.")
+            print(f"✅ [BG EXPORT] Синхронизация завершена.")
         except Exception as e:
             print(f"❌ [BG EXPORT] Ошибка: {e}")
 
 
 async def sync_anticafe_games():
-    """Фоновый импорт (без изменений)"""
+    """Импорт игротек «Антикафе» из листа в БД.
+
+    Возвращает (сколько игр загружено, текст ошибки или None).
+    """
     # print("🔄 [BG IMPORT] Чтение таблицы...")
     client = get_client()
-    if not client: return
+    if not client:
+        return 0, f"нет доступа к Google (лист «{SHEET_NAME}»)"
     try:
         sheet = await asyncio.to_thread(client.open_by_key(SPREADSHEET_ID).worksheet, SHEET_NAME)
         data = await asyncio.to_thread(sheet.get_all_values)
-    except:
-        return
+    except Exception as e:
+        return 0, f"лист «{SHEET_NAME}»: {e}"
+
+    if len(data) < 5:
+        return 0, f"лист «{SHEET_NAME}» пуст"
 
     clear_official_games()
+    count = 0
     try:
         date_row, game_row, time_row, host_row = data[1], data[2], data[3], data[4]
         note_row_index = -1
         for i, row in enumerate(data[:30]):
             if row and "примечания" in str(row[0]).lower(): note_row_index = i; break
 
-        count = 0
         now_date = datetime.now().date()
 
-        for col_idx in range(1, len(game_row)):
+        # Ширина берётся по самой длинной строке: строка дат короче строки игр,
+        # и новые колонки иначе молча не находятся
+        width = max(len(date_row), len(game_row), len(time_row), len(host_row))
+        for col_idx in range(1, width):
             # Безопасная проверка длины
             if col_idx >= len(date_row) or col_idx >= len(time_row) or col_idx >= len(host_row):
                 continue
@@ -377,6 +387,8 @@ async def sync_anticafe_games():
         # print(f"✅ [BG IMPORT] Загружено игр: {count}")
     except Exception as e:
         print(f"❌ [BG IMPORT] Ошибка: {e}")
+        return count, f"разбор листа «{SHEET_NAME}»: {e}"
+    return count, None
 
 
 async def run_sync_cycle():

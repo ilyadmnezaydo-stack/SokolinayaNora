@@ -3,8 +3,8 @@ import html
 import asyncio
 from datetime import datetime, timezone, timedelta
 
-from aiogram import Router, F, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram import Router, F, types, Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -25,7 +25,7 @@ from sync_service import sync_anticafe_games, instant_remove_user_from_sheet
 from sheets_api_guest_refactored import удалить_участника_гостевые
 
 # Импорт Уведомлений
-from notifications import ADMIN_IDS
+from notifications import notify_admins, ADMIN_IDS
 
 admin_router = Router()
 BLOCKED_TABLES_FILE = "blocked_tables.json"
@@ -59,6 +59,7 @@ def get_admin_menu():
         [InlineKeyboardButton(text="♟ Гостевые Игротеки", callback_data="admin_igroteka_guest")],
         [InlineKeyboardButton(text="🚫 Блок столов", callback_data="admin_block_tables")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="🔄 Синхронизация", callback_data="admin_force_sync")],
     ])
 
 
@@ -84,13 +85,39 @@ async def back_to_menu(callback: types.CallbackQuery, state: FSMContext):
 # === ХЕНДЛЕР СИНХРОНИЗАЦИИ ===
 @admin_router.callback_query(F.data == "admin_force_sync")
 async def force_sync_handler(callback: types.CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ Доступ запрещён.", show_alert=True)
+        return
+
     await callback.answer("⏳ Синхронизирую с Google...", show_alert=False)
     try:
-        await sync_anticafe_games()
-        await callback.message.answer("✅ <b>Синхронизация успешна!</b>\nБаза данных обновлена.", reply_markup=back_menu,
-                                      parse_mode="HTML")
+        await callback.message.edit_text(
+            "⏳ <b>Синхронизация…</b>\nЧитаю лист «Игротеки_Антикафе».", parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+    try:
+        загружено, ошибка = await sync_anticafe_games()
     except Exception as e:
-        await callback.message.answer(f"❌ Ошибка: {e}", reply_markup=back_menu)
+        await callback.message.answer(
+            f"❌ Ошибка синхронизации: {html.escape(str(e))}", reply_markup=back_menu
+        )
+        return
+
+    if ошибка:
+        текст = "❌ <b>Синхронизация не удалась</b>\n" + html.escape(ошибка)
+    else:
+        текст = (
+            "✅ <b>Игротеки (Антикафе) синхронизированы</b>\n"
+            f"🎲 Загружено игр из листа: <b>{загружено}</b>\n"
+            f"🕒 {datetime.now(timezone(timedelta(hours=3))).strftime('%H:%M')} МСК"
+        )
+
+    try:
+        await callback.message.edit_text(текст, parse_mode="HTML", reply_markup=back_menu)
+    except Exception:
+        await callback.message.answer(текст, parse_mode="HTML", reply_markup=back_menu)
 
 
 # ======================== 1. Управление КАЛЕНДАРЯМИ (Брони) ========================
@@ -362,7 +389,7 @@ async def admin_finish_add_user(message: types.Message, state: FSMContext):
     elif res == "ALREADY":
         await message.answer(f"⚠️ <b>{user_name}</b> уже записан.", parse_mode="HTML")
     elif res == "FULL":
-        await message.answer("❌ Нет мест.", parse_mode="HTML")
+        await message.answer(f"❌ Нет мест.", parse_mode="HTML")
     else:
         await message.answer("⚠️ Ошибка базы данных.", parse_mode="HTML")
 
